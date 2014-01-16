@@ -37,6 +37,7 @@ public class ToolExport {
 	private String project;
 	private Map<String, Integer> keysIndex;
 	private PrintStream out;
+	private boolean exportAll;
 	
 	public ToolExport(PrintStream out) throws ParserConfigurationException{
 		DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
@@ -49,26 +50,26 @@ public class ToolExport {
 			System.out.println("Project dir is missed");
 			return;
 		}
-		run(null, args[0], args.length > 1 ? args[1] : null);
+		run(null, args[0], args.length > 1 ? args[1] : null, false);
 	}
 	
-	public static void run(String projectDir, String outputFile) throws SAXException, IOException, ParserConfigurationException {
-		run(null, projectDir, outputFile);
+	public static void run(String projectDir, String outputFile, boolean exportAll) throws SAXException, IOException, ParserConfigurationException {
+		run(null, projectDir, outputFile, exportAll);
 	}
-	
-	public static void run(PrintStream out, String projectDir, String outputFile) throws SAXException, IOException, ParserConfigurationException {
+
+	public static void run(PrintStream out, String projectDir, String outputFile, boolean exportAll) throws SAXException, IOException, ParserConfigurationException {
 		ToolExport tool = new ToolExport(out);
+		tool.exportAll = exportAll;
 		if(projectDir == null || "".equals(projectDir)){
 			tool.out.println("Project dir is missed");
 			return;
 		}
 		File project = new File(projectDir);
-		tool.outExcelFile = new File(outputFile != null ? outputFile : "exported_strings_" + System.currentTimeMillis() + ".xls");
 		tool.project = project.getName();
-		tool.export(project);
+		tool.exportInSeparateFiles(project, (outputFile != null ? outputFile : "exported_strings_" + System.currentTimeMillis()));
 	}
 	
-	private void export(File project) throws SAXException, IOException{
+	private void exportInSeparateFiles(File project, String outputFile) throws SAXException, IOException {
 		File res = new File(project, "res");
 		for(File dir : res.listFiles()){
 			if(!dir.isDirectory() || !dir.getName().startsWith(DIR_VALUES)){
@@ -76,31 +77,92 @@ public class ToolExport {
 			}
 			String dirName = dir.getName();
 			if(dirName.equals(DIR_VALUES)){
-				keysIndex = exportDefLang(dir);
+				continue;
 			}else{
 				int index = dirName.indexOf('-');
 				if(index == -1)
 					continue;
 				String lang = dirName.substring(index + 1);
-				exportLang(lang, dir);
+				outExcelFile = new File(String.format("%s_%s.xls", outputFile, lang));
+				export(project, lang);
 			}
 		}
 	}
 	
-	private void exportLang(String lang, File valueDir) throws FileNotFoundException, IOException, SAXException{
+	private void export(File project, String langToTranslate) throws SAXException, IOException{
+		File res = new File(project, "res");
+		Set<String> skipKeys = exportAll ? null : findExistingKeys(project, langToTranslate);
+		for(File dir : res.listFiles()){
+			if(!dir.isDirectory() || !dir.getName().startsWith(DIR_VALUES)){
+				continue;
+			}
+			String dirName = dir.getName();
+			if(dirName.equals(DIR_VALUES)){
+				keysIndex = exportDefLang(dir, skipKeys);
+			}else{
+				int index = dirName.indexOf('-');
+				if(index == -1)
+					continue;
+				String lang = dirName.substring(index + 1);
+				if (!lang.equals(langToTranslate))
+					continue;
+				exportLang(lang, dir, skipKeys);
+			}
+		}
+	}
+	
+	private Set<String> findExistingKeys(File project, String langToTranslate) throws SAXException, IOException {
+		Set<String> existingKeys = new HashSet<String>();
+		File res = new File(project, "res");
+		for(File dir : res.listFiles()){
+			if(!dir.isDirectory() || !dir.getName().startsWith(DIR_VALUES)){
+				continue;
+			}
+			String dirName = dir.getName();
+			if(dirName.equals(DIR_VALUES)){
+				continue;
+			}else{
+				int index = dirName.indexOf('-');
+				if(index == -1)
+					continue;
+				String lang = dirName.substring(index + 1);
+				if (!lang.equals(langToTranslate))
+					continue;
+				File stringFile = new File(dir, "strings.xml");
+				if(!stringFile.exists())
+					break;
+				NodeList strings = getStrings(stringFile);
+				for(int i = 0; i < strings.getLength(); i++){
+					Node item = strings.item(i);
+
+					if("string".equals(item.getNodeName())){
+						Node translatable = item.getAttributes().getNamedItem("translatable");
+						if(translatable != null && "false".equals(translatable.getNodeValue())){
+							continue;
+						}
+						String key = item.getAttributes().getNamedItem("name").getNodeValue();
+						existingKeys.add(key);
+					}
+				}
+			}
+		}
+		return existingKeys;
+	}
+	
+	private void exportLang(String lang, File valueDir, Set<String> skipKeys) throws FileNotFoundException, IOException, SAXException{
 		File stringFile = new File(valueDir, "strings.xml");
 		if(!stringFile.exists()){
 			return;
 		}
-		exportLangToExcel(project, lang, getStrings(stringFile), outExcelFile, keysIndex);
+		exportLangToExcel(project, lang, getStrings(stringFile), outExcelFile, keysIndex, skipKeys);
 	}
 	
-	private Map<String, Integer> exportDefLang(File valueDir) throws FileNotFoundException, IOException, SAXException{
+	private Map<String, Integer> exportDefLang(File valueDir, Set<String> skipKeys) throws FileNotFoundException, IOException, SAXException{
 		File stringFile = new File(valueDir, "strings.xml");
 		if(!stringFile.exists()){
 			return null;
 		}
-		return exportDefLangToExcel(project, getStrings(stringFile), outExcelFile);
+		return exportDefLangToExcel(project, getStrings(stringFile), outExcelFile, skipKeys);
 	}
 	
 	private NodeList getStrings(File f) throws SAXException, IOException{
@@ -186,7 +248,7 @@ public class ToolExport {
 	}
 	
 	
-	private Map<String, Integer> exportDefLangToExcel(String project, NodeList strings, File f) throws FileNotFoundException, IOException{
+	private Map<String, Integer> exportDefLangToExcel(String project, NodeList strings, File f, Set<String> skipKeys) throws FileNotFoundException, IOException{
 		out.println();
 		out.println("Start processing DEFAULT language");
 		
@@ -224,6 +286,9 @@ public class ToolExport {
 					continue;
 				}
 				String key = item.getAttributes().getNamedItem("name").getNodeValue();
+				if (skipKeys != null && skipKeys.contains(key)) {
+					continue;
+				}
 				keys.put(key, rowIndex);
 				
 				HSSFRow row = sheet.createRow(rowIndex++);
@@ -247,7 +312,7 @@ public class ToolExport {
 		return keys;
 	}
 	
-	private void exportLangToExcel(String project, String lang, NodeList strings, File f, Map<String, Integer> keysIndex) throws FileNotFoundException, IOException{
+	private void exportLangToExcel(String project, String lang, NodeList strings, File f, Map<String, Integer> keysIndex, Set<String> skipKeys) throws FileNotFoundException, IOException{
 		out.println();
 		out.println(String.format("Start processing: '%s'", lang));
 		Set<String> missedKeys = new HashSet<String>(keysIndex.keySet());
@@ -267,6 +332,9 @@ public class ToolExport {
 					continue;
 				}
 				String key = item.getAttributes().getNamedItem("name").getNodeValue();
+				if (skipKeys != null && skipKeys.contains(key)) {
+					continue;
+				}
 				Integer index = keysIndex.get(key);
 				if(index == null){
 					out.println("\t" + key + " - row does not exist");
