@@ -299,7 +299,7 @@ public class ToolExport {
 				
 				cell = row.createCell(1);
 				cell.setCellStyle(textStyle);
-				cell.setCellValue(String.format("[[[%s]]]", item.getTextContent()));
+				cell.setCellValue(String.format("%s", item.getTextContent()));
 			}
 		}
 		sheet.createFreezePane(1, 1);
