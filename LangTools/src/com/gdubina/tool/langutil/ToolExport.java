@@ -213,7 +213,7 @@ public class ToolExport {
 			if(item.getNodeType() == Node.COMMENT_NODE){
 				HSSFRow row = sheet.createRow(rowIndex++);
 				HSSFCell cell = row.createCell(0);
-				cell.setCellValue(String.format("/** %s **/", item.getTextContent()));
+				cell.setCellValue(String.format("[[[/** %s **/]]]", item.getTextContent()));
 				cell.setCellStyle(commentStyle);
 				
 				sheet.addMergedRegion(new CellRangeAddress(row.getRowNum(), row.getRowNum(), 0, 255));	
@@ -229,12 +229,12 @@ public class ToolExport {
 				HSSFRow row = sheet.createRow(rowIndex++);
 				
 				HSSFCell cell = row.createCell(0);
-				cell.setCellValue(key);
+				cell.setCellValue(String.format("[[[%s]]]", key));
 				cell.setCellStyle(keyStyle);
 				
 				cell = row.createCell(1);
 				cell.setCellStyle(textStyle);
-				cell.setCellValue(item.getTextContent());
+				cell.setCellValue(String.format("[[[%s]]]", item.getTextContent()));
 			}
 		}
 		sheet.createFreezePane(1, 1);
